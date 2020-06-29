@@ -40,9 +40,66 @@ function getMousePos(event) {
 
 class AssetManager {
     constructor() {
+        this.Queue = [];
         this.Cache = [];
     }
+
+    AssetForceDownloadAll() {
+        return new Promise((resolve,reject) => {
+            if (this.Queue.length === 0) {
+                reject("asset queue was empty")
+            }
+            
+            var Successes = 0;
+            var Failures = 0;
+            var QueueLength = this.Queue.Length
+
+            var QueueFinished = () => {
+                if (Successes + Failures == QueueLength) {
+                    resolve({Successes : Successes,Failures : Failures})
+                }
+            }
+
+            for (var x in this.Queue) {
+                // all of the assets in the queue will be downloaded here
+                var Path = this.Queue.pop()
+                var Img = new Image()
+                
+                var that = this
+                Img.addEventListener("load",() => {
+                    Successes++
+                    console.log(`Downloaded ${Path}`)
+                    QueueFinished()
+                })
+
+                Img.addEventListener("error",() => {
+                    Failures++
+                    console.log(`Download failed for ${Path}, placed it back in the queue.`)
+                    that.AssetPush(Path);
+                    QueueFinished()
+                })
+
+                Img.src = Path
+                this.Cache[Path] = Img
+            }
+        })
+    }
+
+    AssetPush(Path) {
+        this.Queue.push(Path)
+        console.log(`Added ${Path} to asset download queue.`)
+    }
+
+    AssetGet(Path) {
+        return (this.Cache[Path])
+    }
+
+    AssetExists(Path) {
+        return (this.Cache[Path] != undefined)
+    }
 }
+
+var AssetHandler = new AssetManager()
 
 class entity {
     constructor(x = 0, y = 0,id,_create,_step,_draw) {

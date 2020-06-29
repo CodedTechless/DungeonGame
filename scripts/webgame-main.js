@@ -38,6 +38,12 @@ function getMousePos(event) {
 //   ######~ CLASSES ~######   //
 /////////////////////////////////
 
+class AssetManager {
+    constructor() {
+        this.Cache = [];
+    }
+}
+
 class entity {
     constructor(x = 0, y = 0,id,_create,_step,_draw) {
         this.x = x;
@@ -78,15 +84,51 @@ class block {
     draw() {
         let ctx = Game.context
         ctx.fillStyle = "#ff0000";
+
+        var ScreenPosition = WorldToScreenPosition(this.x,this.y)
+        var ScreenScale = WorldToScreenSize(this.properties.width,this.properties.height)
         
         for (var iX = 0; iX < this.properties.tilesX;iX++) {
             for (var iY = 0; iY < this.properties.tilesY;iY++) {
-                ctx.fillRect(this.x + (this.properties.width * iX),this.y + (this.properties.height * iY),this.properties.width,this.properties.height)
+                ctx.fillRect(ScreenPosition.x + (ScreenScale.w * iX),ScreenPosition.y + (ScreenScale.h * iY),ScreenScale.w,ScreenScale.h)
             }
         }
     }
 }
 
+//////////////////////////////////
+//    ######~ CAMERA ~######    //
+//////////////////////////////////
+
+function WorldToScreenPosition(xWorld = 0, yWorld = 0) {
+    var Camera = Game.camera
+
+    var WidthScale = Camera.scale.w / Camera.scale.default.w 
+    var HeightScale = Camera.scale.h / Camera.scale.default.h
+
+    var xScreen = (xWorld - (Camera.position.x + (Camera.offset.x * (1/WidthScale)))) * WidthScale
+    var yScreen = (yWorld - (Camera.position.y + (Camera.offset.y * (1/HeightScale)))) * HeightScale
+
+    return {
+        x: xScreen,
+        y: yScreen
+    }
+}
+
+function WorldToScreenSize(wWorld = 0, hWorld = 0) {
+    var Camera = Game.camera
+
+    var WidthScale = Camera.scale.w / Camera.scale.default.w 
+    var HeightScale = Camera.scale.h / Camera.scale.default.h
+
+    var wScreen = wWorld * WidthScale
+    var hScreen = hWorld * HeightScale
+
+    return {
+        w: wScreen,
+        h: hScreen
+    }
+}
 
 ////////////////////////////////
 //    ######~ CORE ~######    //
@@ -102,11 +144,12 @@ var Game = {
         this.context = this.canvas.getContext("2d"); // ensuring that any part of the script can get the context without having to spam getContext
 
         document.body.insertBefore(this.canvas,document.body.childNodes[0]) // inserts it *before* the script element (so its the first element on the webpage)
-
-        this.stepUpdate = setInterval(step_loop,1000/60) // activates the step loop
+        
+        // activates the step loop
         this.secUpdate = setInterval(second_loop,1000)
 
         draw_loop()
+        step_loop()
 
         // #### INPUT #### \\
 
@@ -172,7 +215,10 @@ var Game = {
                     (self) => {
                         let ctx = Game.context
                         ctx.fillStyle = "#00ff00";
-                        ctx.fillRect(self.x,self.y,32,32)
+
+                        var ScreenPosition = WorldToScreenPosition(self.x,self.y)
+                        var ScreenScale = WorldToScreenSize(32,32)
+                        ctx.fillRect(ScreenPosition.x,ScreenPosition.y,ScreenScale.w,ScreenScale.h)
                     }
                 );break;
             case "ent_player" : 
@@ -185,9 +231,11 @@ var Game = {
                         self.hsp = 0; // horizontal speed
                         self.vsp = 0; // vertical speed
 
-                        self.MoveAccel = 0.5; // movement acceleration
+                        self.MoveAccel = 1; // movement acceleration
                         self.MoveSpeedMax = 4;
                         self.MoveFric = 3; // movement friction
+
+                        Game.camera.subject = self
                     },
                     (self) => {
                         // ####################
@@ -201,12 +249,18 @@ var Game = {
                         
                         var moveH = keyRight - keyLeft
                         var moveV = keyDown - keyUp
+
+                        if (moveH == 0) {self.hsp = approach(self.hsp,self.MoveAccel)}
+                        if (moveV == 0) {self.vsp = approach(self.vsp,self.MoveAccel)}
                 
                         self.hsp += self.MoveAccel * moveH
                         self.vsp += self.MoveAccel * moveV
 
-                        self.x += self.hsp 
-                        self.y += self.vsp 
+                        self.hsp = clamp(self.hsp,-self.MoveSpeedMax,self.MoveSpeedMax) 
+                        self.vsp = clamp(self.vsp,-self.MoveSpeedMax,self.MoveSpeedMax)
+                        
+                        self.x += self.hsp
+                        self.y += self.vsp
                     },
                     (self) => { 
                         // ####################
@@ -214,7 +268,10 @@ var Game = {
                         // ####################
                         let ctx = Game.context
                         ctx.fillStyle = "#00ff00";
-                        ctx.fillRect(self.x,self.y,32,32)
+                        
+                        var ScreenPosition = WorldToScreenPosition(self.x,self.y)
+                        var ScreenScale = WorldToScreenSize(32,32)
+                        ctx.fillRect(ScreenPosition.x,ScreenPosition.y,ScreenScale.w,ScreenScale.h)
                     }
                 );break;
         }
@@ -232,6 +289,28 @@ var Game = {
         return blk
     },
 
+    camera : {
+        subject : null,
+        position : {
+            x   : 0, y   : 0,
+            xTo : 0, yTo : 0,
+            smoothen : 5
+        },
+
+        offset : {x : -624, y : -344},
+
+        scale : {
+            default : {w : 1280,h : 720},
+            
+            w   : 1280,h   : 720,
+            
+            zoomLevel : 1,
+            zoomLevelTo : 0.8,
+
+            smoothen : 5
+        }
+    },
+
     entities : [],
     blocks : [],
 
@@ -245,7 +324,20 @@ var Game = {
 
         },
         step : function() {
+            if (Game.camera.subject) {
+                Game.camera.position.xTo = Game.camera.subject.x
+                Game.camera.position.yTo = Game.camera.subject.y
 
+                Game.camera.position.x += (Game.camera.position.xTo - Game.camera.position.x) / Game.camera.position.smoothen
+                Game.camera.position.y += (Game.camera.position.yTo - Game.camera.position.y) / Game.camera.position.smoothen
+
+                Game.camera.scale.zoomLevel += ((1/Game.camera.scale.zoomLevelTo) - Game.camera.scale.zoomLevel) / Game.camera.scale.smoothen
+
+                Game.camera.scale.w = Game.camera.scale.default.w * Game.camera.scale.zoomLevel
+                Game.camera.scale.h = Game.camera.scale.default.h * Game.camera.scale.zoomLevel
+
+                
+            }
         },
         endstep : function() {
             var k = Object.entries(Game.input.keys)
@@ -285,9 +377,11 @@ var AverageRedrawsPerSecond = 0
 var AverageStepsPerSecond = 0
 var TotalRuntime = 0
 
-
 function step_loop() {
     // steps through all of the entities
+
+    Game.events.step()
+
     for (let i in Game.entities) {
         var entity = Game.entities[i]
 
@@ -298,9 +392,12 @@ function step_loop() {
     Game.events.endstep()
 
     StepsPerSecond++
+
+    setTimeout(step_loop,1000/60)
 }
 
 function draw_loop() {
+
     // clears the screen ready for the next animation frame to be drawn
     var ctx = Game.context
 
